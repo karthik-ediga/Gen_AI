@@ -58,8 +58,8 @@ Question: "${query}"`;
     const raw = extractTextContent(response.content).trim().toLowerCase();
     return raw.includes("true");
   } catch (err) {
-    console.warn("⚠️  Movie detection failed, defaulting to database");
-    return true; // Default to database if detection fails
+    console.warn("⚠️  Movie detection failed, defaulting to LLM");
+    return false; // Default to LLM for non-movie queries if detection fails
   }
 }
 
