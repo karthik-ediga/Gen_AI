@@ -2,10 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveQueryEntities } from './9_entityResolver.js';
-import { classifyQuery } from './10_queryClassifier.js';
-import { handleGraphQuery } from './11_graphHandler.js';
-import { handleSimilarityQuery } from './12_similarityHandler.js';
+import { routeQuery } from './14_queryRouter.js';
 import { closeConnections } from './2_config.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -61,15 +58,8 @@ function createServer() {
   return server;
 }
 
-async function processQuery(query) {
-  const resolved = await resolveQueryEntities(query);
-  const classification = await classifyQuery(query, resolved);
-
-  if (classification.type === 'similarity') {
-    return handleSimilarityQuery(query, resolved);
-  }
-
-  return handleGraphQuery(query, resolved);
+async function processQuery(query, routerFn = routeQuery) {
+  return routerFn(query);
 }
 
 const server = createServer();
