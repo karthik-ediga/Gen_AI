@@ -44,8 +44,17 @@ async function startCLI() {
     output: process.stdout,
   });
 
+  let closed = false;
+  rl.on('close', () => {
+    closed = true;
+  });
+
   const ask = () => {
+    if (closed) return;
+
     rl.question("🎬 You: ", async (input) => {
+      if (closed) return;
+
       const query = input.trim();
 
       if (query.toLowerCase() === "exit") {
