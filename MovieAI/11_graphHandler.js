@@ -67,7 +67,7 @@ function buildFallbackPlan(query, resolvedEntities) {
 
   return { steps: [] };
 }
-
+//returns true - meaning "the plan needs fixing"
 function shouldUseFallbackPlan(query, plan, resolvedEntities) {
   const normalizedQuery = query.toLowerCase();
   const asksForActors = /(actor|actors|actress|cast|acted|acted in|star|stars)/i.test(normalizedQuery);
@@ -179,7 +179,7 @@ EXAMPLES:
   {"type":"filter","field":"Genre.name","op":"=","value":"Sci-Fi"},
   {"type":"aggregation","function":"count","field":"Movie.title","alias":"total_scifi_movies"}
 ]}`;
-
+//projection means fields to return,Limit means Return only the first N results.
   const response = await llm.invoke([
     { role: "system", content: prompt },
     { role: "human", content: query },
