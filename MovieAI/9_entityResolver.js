@@ -79,7 +79,7 @@ Examples:
   raw = raw.trim().replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
 
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw);//js object or array
   } catch (err) {
     console.warn("⚠️ Entity extraction failed, returning empty array");
     return [];
@@ -105,7 +105,7 @@ async function resolveEntity(entityName) {
   const session = driver.session({ defaultAccessMode: "READ" });
   const matches = [];
 
-  try {
+  try { //(:Actor { name: "Tom Hardy" })
     for (const { label, property } of NODE_TYPES) {
       // First try exact match (case-insensitive)
       const exactResult = await session.run(
