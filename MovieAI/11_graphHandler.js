@@ -44,7 +44,7 @@ function buildFallbackPlan(query, resolvedEntities) {
   const asksForActors = /(actor|actors|actress|cast|acted|acted in|star|stars)/i.test(normalizedQuery);
   const asksForMovies = /(movie|movies|film|films)/i.test(normalizedQuery);
 
-  if (asksForActors && asksForMovies && directorEntity) {
+  if (asksForActors && directorEntity) {
     return {
       steps: [
         { type: "traversal", from: "Actor", rel: "ACTED_IN", to: "Movie" },
@@ -55,7 +55,7 @@ function buildFallbackPlan(query, resolvedEntities) {
     };
   }
 
-  if (asksForMovies && directorEntity && !movieEntity) {
+  if (directorEntity && !movieEntity) {
     return {
       steps: [
         { type: "traversal", from: "Director", rel: "DIRECTED", to: "Movie" },
@@ -383,6 +383,10 @@ async function handleGraphQuery(query, resolvedEntities) {
   console.log("   📋 Plan:", JSON.stringify(plan, null, 2));
 
   // Step 2: Execute based on plan type
+  if (!plan?.steps || !Array.isArray(plan.steps) || plan.steps.length === 0) {
+    return "I couldn't generate a valid query plan to answer that question from the database.";
+  }
+
   let records;
   const firstStep = plan.steps[0];
 
