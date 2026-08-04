@@ -93,7 +93,7 @@ async function filterByGenre(movieTitles, sourceGenres) {
  */
 async function handleSimilarityQuery(query, resolvedEntities) {
   // ── Step 1: Find the source movie from resolved entities ──
-  // Entity resolver already searched Neo4j, so we know exactly what it is
+  // Entity resolver already searched, so we know exactly what it is
   const movieEntity = resolvedEntities.entities.find(
     (e) => e.label === "Movie"
   );
