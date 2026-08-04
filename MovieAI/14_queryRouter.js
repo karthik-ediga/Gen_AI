@@ -157,6 +157,7 @@ async function getWeather(city) {
   const response = await fetch(
     `http://api.weatherapi.com/v1/current.json?key=d6a3bcd7a43c4ed59c2155208252404&q=${city}&aqi=no`,
   );
+  console.log(await response.text());
   if (!response.ok) {
     throw new Error("Weather API request failed");
   }
@@ -170,6 +171,7 @@ async function getCrypto(coin) {
   const response = await fetch(
     `https://api.coingecko.com/api/v3/coins/markets?vs_currency=inr&ids=${coin}`,
   );
+  console.log(await response.text());
   if (!response.ok) {
     throw new Error("CoinGecko request failed");
   }
