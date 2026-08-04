@@ -6,7 +6,8 @@
   "scripts": {
     "index": "node 7_runIndexing.js",
     "query": "node 13_runQuery.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node 1_testConnection.js"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
