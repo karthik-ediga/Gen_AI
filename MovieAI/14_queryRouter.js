@@ -6,7 +6,7 @@
 //   IF query is about movies → Use existing GraphRAG pipeline
 //      (Entity Resolution → Classification → Graph/Similarity Handlers)
 //
-//   IF query is NOT about movies → Use livecalls or Gemini LLM directly
+//   IF query is NOT about movies → Use Gemini LLM directly
 //      (Fast, handles any topic)
 //
 // This prevents wasting compute on non-movie queries that won't
@@ -153,36 +153,89 @@ async function handleGeneralQuery(query) {
   return extractTextContent(response.content);
 }
 
+const FETCH_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Accept": "application/json",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
 async function getWeather(city) {
-  const response = await fetch(
-    `http://api.weatherapi.com/v1/current.json?key=d6a3bcd7a43c4ed59c2155208252404&q=${city}&aqi=no`,
-  );
-  console.log(await response.text());
-  if (!response.ok) {
-    throw new Error("Weather API request failed");
+  const encodedCity = encodeURIComponent(city);
+  
+  // ── Primary Source: WeatherAPI ──
+  try {
+    const response = await fetch(
+      `https://api.weatherapi.com/v1/current.json?key=d6a3bcd7a43c4ed59c2155208252404&q=${encodedCity}&aqi=no`,
+      { headers: FETCH_HEADERS }
+    );
+    if (response.ok) {
+      const data = await response.json();
+      return `The current weather in ${data.location.name}, ${data.location.country} is ${data.current.temp_c}°C with ${data.current.condition.text.toLowerCase()}. Humidity is ${data.current.humidity}% and wind speed is ${data.current.wind_kph} km/h.`;
+    }
+  } catch (err) {
+    console.warn("⚠️ WeatherAPI primary failed, trying Open-Meteo fallback:", err.message);
   }
 
-  const data = await response.json();
+  // ── Fallback Source: Open-Meteo (No API Key required, Cloud-friendly) ──
+  try {
+    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodedCity}&count=1&language=en&format=json`, { headers: FETCH_HEADERS });
+    const geoData = await geoRes.json();
+    if (geoData.results && geoData.results.length > 0) {
+      const { latitude, longitude, name, country } = geoData.results[0];
+      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m`, { headers: FETCH_HEADERS });
+      const weatherData = await weatherRes.json();
+      if (weatherData.current) {
+        const temp = weatherData.current.temperature_2m;
+        const humidity = weatherData.current.relative_humidity_2m;
+        const wind = weatherData.current.wind_speed_10m;
+        return `The current weather in ${name}, ${country} is ${temp}°C. Humidity is ${humidity}% and wind speed is ${wind} km/h.`;
+      }
+    }
+  } catch (err) {
+    console.warn("⚠️ Open-Meteo fallback failed:", err.message);
+  }
 
-  return data;
+  throw new Error("Unable to fetch weather data from any live source");
 }
 
 async function getCrypto(coin) {
-  const response = await fetch(
-    `https://api.coingecko.com/api/v3/coins/markets?vs_currency=inr&ids=${coin}`,
-  );
-  console.log(await response.text());
-  if (!response.ok) {
-    throw new Error("CoinGecko request failed");
+  const encodedCoin = encodeURIComponent(coin.toLowerCase());
+
+  // ── Primary Source: CoinGecko ──
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=inr&ids=${encodedCoin}`,
+      { headers: FETCH_HEADERS }
+    );
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const coinData = data[0];
+        return `${coinData.name} (${coinData.symbol.toUpperCase()}) is currently trading at ₹${coinData.current_price ? coinData.current_price.toLocaleString("en-IN") : "N/A"}. Its market capitalization is ₹${coinData.market_cap ? coinData.market_cap.toLocaleString("en-IN") : "N/A"}, with a 24-hour price change of ${coinData.price_change_percentage_24h != null ? coinData.price_change_percentage_24h.toFixed(2) : "0"}%.`;
+      }
+    }
+  } catch (err) {
+    console.warn("⚠️ CoinGecko primary failed (likely Cloudflare block on Render), trying CoinCap fallback:", err.message);
   }
 
-  const data = await response.json();
-
-  if (!data.length) {
-    throw new Error("Cryptocurrency not found");
+  // ── Fallback Source: CoinCap API ──
+  try {
+    const response = await fetch(`https://api.coincap.io/v2/assets/${encodedCoin}`, { headers: FETCH_HEADERS });
+    if (response.ok) {
+      const { data } = await response.json();
+      if (data) {
+        const priceUsd = parseFloat(data.priceUsd);
+        const priceInr = priceUsd * 86.5; // Approximate USD to INR conversion
+        const change24h = parseFloat(data.changePercent24Hr);
+        const marketCapInr = parseFloat(data.marketCapUsd) * 86.5;
+        return `${data.name} (${data.symbol.toUpperCase()}) is currently trading at approx ₹${priceInr.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ($${priceUsd.toFixed(2)} USD). Its market capitalization is ₹${marketCapInr.toLocaleString("en-IN", { maximumFractionDigits: 0 })}, with a 24-hour price change of ${change24h.toFixed(2)}%.`;
+      }
+    }
+  } catch (err) {
+    console.warn("⚠️ CoinCap fallback failed:", err.message);
   }
 
-  return data;
+  throw new Error("Cryptocurrency data unreachable from live sources");
 }
 
 // =====================================================================
@@ -208,7 +261,11 @@ async function routeQuery(query) {
           answer = await handleMovieQuery(query);
         } catch (err) {
           console.warn("⚠️ Movie pipeline failed:", err.message);
-          answer = await handleGeneralQuery(query);
+          try {
+            answer = await handleGeneralQuery(query);
+          } catch (fallbackErr) {
+            answer = `Movie pipeline unavailable (${err.message || 'Service error'}). Please try again.`;
+          }
         }
         break;
 
@@ -219,33 +276,47 @@ async function routeQuery(query) {
           switch (route.service) {
             case "weather":
               answer = await getWeather(route.city);
-              return `The current weather in ${answer.location.name}, ${answer.location.country} is ${answer.current.temp_c}°C with ${answer.current.condition.text.toLowerCase()}. Humidity is ${answer.current.humidity}% and wind speed is ${answer.current.wind_kph} km/h.`;
-              break;
+              return answer;
 
             case "crypto":
               answer = await getCrypto(route.coin);
-              return `${answer[0].name} (${answer[0].symbol.toUpperCase()}) is currently trading at ₹${answer[0].current_price.toLocaleString("en-IN")}. Its market capitalization is ₹${answer[0].market_cap.toLocaleString("en-IN")}, with a 24-hour price change of ${answer[0].price_change_percentage_24h.toFixed(2)}%.`;
-              break;
+              return answer;
 
             default:
               console.warn("⚠️ Unknown live service:", route.service);
-              answer = await handleGeneralQuery(query);
+              try {
+                answer = await handleGeneralQuery(query);
+              } catch (fallbackErr) {
+                answer = "Service unavailable for this query.";
+              }
           }
         } catch (err) {
           console.warn("⚠️ Live call failed:", err.message);
-          answer = await handleGeneralQuery(query);
+          try {
+            answer = await handleGeneralQuery(query);
+          } catch (fallbackErr) {
+            answer = `Unable to fetch live data (${err.message || 'API error'}).`;
+          }
         }
         break;
 
       case "general":
       default:
         console.log("🤖 General LLM");
-        answer = await handleGeneralQuery(query);
+        try {
+          answer = await handleGeneralQuery(query);
+        } catch (err) {
+          answer = "The assistant is temporarily unavailable. Please try again in a few moments.";
+        }
     }
     return answer;
   } catch (err) {
     console.error("❌ Router Error:", err);
-    return await handleGeneralQuery(query);
+    try {
+      return await handleGeneralQuery(query);
+    } catch (fallbackErr) {
+      return "Service is temporarily busy. Please try again shortly.";
+    }
   }
 }
 
