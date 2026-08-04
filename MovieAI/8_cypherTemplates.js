@@ -102,12 +102,12 @@ function buildCypher(plan) {
   // Validate ALL steps first
   steps.forEach(validateStep);
 
-  const matchClauses = [];
-  const whereClauses = [];
-  let returnClause = "";
-  let orderClause = "";
-  let limitClause = "";
-  const params = {};
+  const matchClauses = [];//Stores all the MATCH parts.MATCH (d:Director)-[:DIRECTED]->(m:Movie)
+  const whereClauses = [];//where["d.name = $directorName"]
+  let returnClause = "";//Stores what to return."RETURN m.title";
+  let orderClause = "";//"ORDER BY m.year DESC";
+  let limitClause = "";//"LIMIT 5";
+  const params = {};//directorName: "Christopher Nolan"
   let paramCounter = 0;
 
   for (const step of steps) {
