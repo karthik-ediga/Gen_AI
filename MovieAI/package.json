@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
-    "@langchain/core": "^1.1.19",
     "@langchain/google-genai": "^2.1.15",
     "@pinecone-database/pinecone": "^5.0.2",
     "dotenv": "^16.4.7",
