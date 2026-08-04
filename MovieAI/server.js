@@ -78,6 +78,13 @@ function createServer() {
 
     if (req.method === 'POST' && url.pathname === '/api/query') {
       let body = '';
+      req.on('error', (err) => {
+        console.error('⚠️ Request error:', err);
+        if (!res.headersSent) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request stream error' }));
+        }
+      });
       //listen for incoming data streams
       req.on('data', (chunk) => {
         body += chunk;
