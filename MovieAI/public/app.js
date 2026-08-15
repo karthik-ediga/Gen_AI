@@ -14,6 +14,13 @@ function enterChat() {
   appEl.classList.add('is-chat');
   heroEl.classList.add('is-chat');
   inputEl.focus();
+
+  if (window.innerWidth <= 960) {
+    const chatShell = document.getElementById('chatShell');
+    if (chatShell) {
+      chatShell.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
 }
 
 function checkPinnedToBottom() {
@@ -221,6 +228,9 @@ if (particlesCanvas) {
 
   let moveTimeout;
   window.addEventListener('resize', resizeCanvas, { passive: true });
+  window.addEventListener('orientationchange', () => {
+    setTimeout(resizeCanvas, 100);
+  }, { passive: true });
   window.addEventListener('pointermove', (event) => {
     pointer.x = event.clientX;
     pointer.y = event.clientY;
