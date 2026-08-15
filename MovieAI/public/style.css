@@ -10,19 +10,32 @@
   --border: rgba(255, 255, 255, 0.12);
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
 html, body {
   margin: 0;
+  padding: 0;
   width: 100%;
-  min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   overflow-y: auto;
 }
+
 body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--text);
   background: linear-gradient(135deg, #020617 0%, #0f172a 55%, #111827 100%);
   position: relative;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body::before, body::after {
@@ -47,6 +60,7 @@ body::after {
   background-size: 70px 70px;
   opacity: 0.08;
   mask-image: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 95%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 95%);
 }
 
 .aurora {
@@ -57,6 +71,7 @@ body::after {
   transform: translate3d(0,0,0);
   animation: pulse 12s ease-in-out infinite alternate;
   z-index: 0;
+  pointer-events: none;
 }
 
 .grid {
@@ -71,6 +86,7 @@ body::after {
   opacity: 0.35;
   animation: driftGrid 18s linear infinite;
   z-index: 0;
+  pointer-events: none;
 }
 
 canvas#particles {
@@ -80,6 +96,7 @@ canvas#particles {
   height: 100%;
   z-index: 0;
   opacity: 0.8;
+  pointer-events: none;
 }
 
 .app {
@@ -88,14 +105,18 @@ canvas#particles {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 18px 18px 120px;
+  min-height: 100dvh;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 18px 18px 32px;
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  gap: 12px;
+  padding: 12px 20px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: rgba(10, 15, 26, 0.55);
@@ -111,6 +132,7 @@ canvas#particles {
   gap: 10px;
   font-weight: 700;
   letter-spacing: 0.01em;
+  flex-shrink: 0;
 }
 
 .brand-badge {
@@ -121,47 +143,50 @@ canvas#particles {
   border-radius: 12px;
   background: linear-gradient(135deg, rgba(139,92,246,0.95), rgba(56,189,248,0.9));
   box-shadow: 0 8px 24px rgba(139, 92, 246, 0.28);
+  flex-shrink: 0;
 }
 
 .brand small {
   color: var(--muted);
   font-size: 0.78rem;
   margin-left: 4px;
+  font-weight: 400;
 }
 
 .topbar-actions {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .pill {
   border: 1px solid rgba(255,255,255,0.11);
   background: rgba(255,255,255,0.06);
   color: var(--text);
-  padding: 8px 12px;
+  padding: 7px 12px;
   border-radius: 999px;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .hero {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: 18px;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 20px;
   align-items: start;
-  padding: clamp(18px, 3vw, 26px) 4px 12px;
-  min-width: 0;
+  padding: 24px 4px 12px;
   transition: transform 500ms cubic-bezier(.2,.8,.2,1), opacity 400ms ease;
 }
 
 .hero.is-chat {
-  transform: translateY(12px);
-  opacity: 0.96;
+  transform: translateY(6px);
+  opacity: 0.98;
 }
 
 .hero-card, .chat-shell {
-  min-width: 0;
   border: 1px solid var(--border);
   background: linear-gradient(135deg, rgba(15,23,42,0.7), rgba(11,17,32,0.72));
   border-radius: 28px;
@@ -179,19 +204,23 @@ canvas#particles {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
-  margin-bottom: 14px;
+  padding: 7px 12px;
+  margin-bottom: 16px;
   border-radius: 999px;
   background: rgba(255,255,255,0.06);
   color: #cbd5e1;
   font-size: 0.82rem;
   border: 1px solid rgba(255,255,255,0.1);
+  max-width: 100%;
 }
 
 .hero h1 {
-  font-size: clamp(1.9rem, 3.2vw, 3rem);
-  line-height: 1.08;
-  margin: 0 0 12px;
+  font-size: clamp(1.6rem, 3.2vw, 2.8rem);
+  line-height: 1.12;
+  margin: 0 0 14px;
+  letter-spacing: -0.01em;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .hero p {
@@ -199,6 +228,9 @@ canvas#particles {
   font-size: 1rem;
   line-height: 1.7;
   max-width: 620px;
+  margin: 0 0 20px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .hero-actions {
@@ -211,25 +243,40 @@ canvas#particles {
 button.primary {
   border: none;
   border-radius: 999px;
-  padding: 11px 16px;
+  padding: 12px 20px;
+  min-height: 44px;
   cursor: pointer;
   font-weight: 600;
-  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
-}
-
-button.primary:hover { transform: translateY(-1px); }
-
-button.primary {
+  font-size: 0.95rem;
   color: white;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 10px 25px rgba(56, 189, 248, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+button.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(56, 189, 248, 0.28);
+}
+
+button.primary:active {
+  transform: scale(0.98);
+}
+
+button.primary:focus-visible,
+.composer button:focus-visible,
+.composer input:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
 }
 
 .chat-shell {
   display: flex;
   flex-direction: column;
-  min-height: 70vh;
-  max-height: 80vh;
+  height: clamp(500px, 75vh, 760px);
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
@@ -244,12 +291,13 @@ button.primary {
 }
 
 .chat-head {
-  padding: 14px 16px;
+  padding: 14px 18px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: rgba(2, 8, 23, 0.22);
+  flex-shrink: 0;
 }
 
 .chat-meta {
@@ -264,36 +312,41 @@ button.primary {
   border-radius: 999px;
   background: #4ade80;
   box-shadow: 0 0 16px rgba(74, 222, 128, 0.46);
+  flex-shrink: 0;
 }
 
 .messages {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 18px 18px 120px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   scroll-behavior: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   transform: translateZ(0);
   will-change: scroll-position;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.2) transparent;
 }
 
 .messages::-webkit-scrollbar { width: 6px; }
 .messages::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.2);
   border-radius: 999px;
 }
 
 .message {
-  max-width: min(78ch, 88%);
+  max-width: min(80ch, 88%);
   width: fit-content;
-  padding: 14px 16px;
-  border-radius: 18px;
-  line-height: 1.7;
-  font-size: 0.97rem;
+  padding: 14px 18px;
+  border-radius: 20px;
+  line-height: 1.65;
+  font-size: 0.96rem;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   animation: messageIn 260ms ease both;
   transform: translateZ(0);
   will-change: transform, opacity;
@@ -301,33 +354,70 @@ button.primary {
 
 .message.user {
   align-self: flex-end;
+  border-bottom-right-radius: 4px;
   background: linear-gradient(135deg, rgba(139,92,246,0.95), rgba(79,70,229,0.95));
-  box-shadow: 0 12px 32px rgba(109, 40, 217, 0.2);
+  box-shadow: 0 10px 30px rgba(109, 40, 217, 0.22);
 }
 
 .message.assistant {
   align-self: flex-start;
+  border-bottom-left-radius: 4px;
   background: rgba(10, 15, 26, 0.84);
   border: 1px solid rgba(255,255,255,0.08);
 }
 
+.message-content {
+  width: 100%;
+}
+
 .message-content p { margin: 0 0 10px; }
 .message-content p:last-child { margin-bottom: 0; }
-.message-content ul, .message-content ol { margin: 8px 0 8px 18px; padding: 0; }
-.message-content code { font-family: 'Fira Code', 'SFMono-Regular', Consolas, monospace; }
+.message-content ul, .message-content ol { margin: 8px 0 8px 20px; padding: 0; }
+.message-content li { margin-bottom: 4px; }
+.message-content code { font-family: 'Fira Code', 'SFMono-Regular', Consolas, monospace; font-size: 0.9em; }
 .message-content pre {
-  padding: 12px;
+  padding: 14px;
   border-radius: 12px;
   overflow-x: auto;
   background: rgba(2, 8, 23, 0.84);
   border: 1px solid rgba(255,255,255,0.08);
+  max-width: 100%;
+  margin: 10px 0;
+  -webkit-overflow-scrolling: touch;
 }
 .message-content pre code { background: transparent; padding: 0; }
 .message-content blockquote {
   margin: 10px 0;
-  padding-left: 12px;
-  border-left: 2px solid rgba(56,189,248,0.5);
+  padding-left: 14px;
+  border-left: 3px solid rgba(56,189,248,0.5);
   color: #cbd5e1;
+}
+
+.message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.message-content th, .message-content td {
+  padding: 8px 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  text-align: left;
+}
+
+.message-content th {
+  background: rgba(255,255,255,0.06);
+  font-weight: 600;
+}
+
+.message-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin: 8px 0;
 }
 
 .typing {
@@ -344,14 +434,14 @@ button.primary {
 .typing span:nth-child(3) { animation-delay: 0.28s; }
 
 .composer {
-  position: sticky;
-  bottom: 20px;
-  margin-top: 12px;
-  width: min(1040px, calc(100% - 24px));
+  flex-shrink: 0;
+  margin: 12px;
+  width: calc(100% - 24px);
   align-self: center;
   display: flex;
-  gap: 12px;
-  padding: 12px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
   border-radius: 999px;
   background: rgba(10, 15, 26, 0.78);
   border: 1px solid rgba(255,255,255,0.1);
@@ -362,25 +452,35 @@ button.primary {
 
 .composer input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
   color: white;
-  padding: 10px 10px 10px 12px;
-  font-size: 0.98rem;
+  padding: 8px 6px;
+  font-size: 16px; /* Prevents iOS Safari input zoom */
+  font-family: inherit;
 }
 .composer input::placeholder { color: #8b97a8; }
 .composer button {
   border: none;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: white;
+  font-size: 1.1rem;
+  font-weight: bold;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-shadow: 0 10px 24px rgba(56, 189, 248, 0.18);
+  transition: transform 180ms ease, opacity 180ms ease;
 }
-.composer button:disabled { opacity: 0.65; cursor: progress; }
+.composer button:active { transform: scale(0.95); }
+.composer button:disabled { opacity: 0.65; cursor: progress; transform: none; }
 
 @keyframes messageIn {
   from { opacity: 0; transform: translateY(12px); }
@@ -407,213 +507,74 @@ button.primary {
   to { transform: perspective(900px) rotateX(70deg) translateY(26%); }
 }
 
-/* Responsive breakpoints — original visual design preserved */
-
-@media (max-width: 1100px) {
-  .app {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
+/* Responsive Media Queries */
+@media (max-width: 960px) {
   .hero {
     grid-template-columns: 1fr;
+    gap: 16px;
   }
-
   .hero-card {
-    width: 100%;
+    padding: 24px;
   }
-
   .chat-shell {
-    min-height: min(70vh, 720px);
-    max-height: 78vh;
+    height: clamp(450px, 68vh, 680px);
   }
 }
 
-@media (max-width: 900px) {
-  .hero {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-
-  .hero-card {
-    order: 1;
-  }
-
-  .chat-shell {
-    min-height: 68vh;
-    max-height: 78vh;
-  }
-
-  .composer {
-    width: min(900px, calc(100% - 20px));
-  }
-}
-
-@media (max-width: 700px) {
+@media (max-width: 640px) {
   .app {
-    padding: 10px 10px 100px;
-    min-height: 100dvh;
+    padding: 12px 12px 24px;
   }
-
   .topbar {
-    border-radius: 22px;
-    padding: 10px 12px;
-    gap: 10px;
+    border-radius: 20px;
+    padding: 10px 14px;
   }
-
-  .brand {
-    min-width: 0;
-  }
-
   .brand small {
     display: none;
   }
-
-  .topbar-actions {
-    flex-shrink: 0;
+  .topbar-actions .pill {
+    padding: 6px 10px;
+    font-size: 0.76rem;
   }
-
-  .pill {
-    padding: 7px 10px;
-    font-size: 0.78rem;
-  }
-
   .hero {
-    width: 100%;
-    padding: 18px 0;
-    gap: 12px;
+    padding: 16px 2px 8px;
   }
-
   .hero-card {
-    padding: 24px 18px;
+    padding: 20px 16px;
     border-radius: 22px;
   }
-
   .hero h1 {
-    font-size: clamp(1.8rem, 8vw, 2.6rem);
-    line-height: 1.08;
+    font-size: clamp(1.5rem, 5.5vw, 2.2rem);
   }
-
   .hero p {
     font-size: 0.94rem;
-    line-height: 1.6;
   }
-
-  .hero-actions {
-    gap: 8px;
-    margin-top: 18px;
-  }
-
-  button.primary {
-    padding: 10px 14px;
-  }
-
   .chat-shell {
-    min-height: calc(100dvh - 92px);
-    max-height: none;
+    height: clamp(400px, 65vh, 620px);
     border-radius: 22px;
   }
-
-  .chat-head {
-    padding: 12px 14px;
-  }
-
   .messages {
-    padding: 14px 12px 110px;
+    padding: 14px;
+    gap: 10px;
   }
-
   .message {
     max-width: 94%;
     padding: 12px 14px;
-    font-size: 0.94rem;
-    line-height: 1.6;
+    font-size: 0.93rem;
   }
-
   .composer {
+    margin: 8px;
     width: calc(100% - 16px);
-    bottom: 8px;
-    margin-top: 8px;
-    padding: 8px;
-    gap: 8px;
-    border-radius: 22px;
-  }
-
-  .composer input {
-    min-width: 0;
-    padding: 9px 8px;
-    font-size: 0.94rem;
-  }
-
-  .composer button {
-    width: 44px;
-    height: 44px;
-    flex: 0 0 44px;
+    padding: 6px 6px 6px 12px;
+    border-radius: 20px;
   }
 }
 
-@media (max-width: 420px) {
-  .topbar {
-    padding: 9px 10px;
+@media (max-width: 380px) {
+  .topbar-actions .pill:last-child {
+    display: none; /* Keep topbar clean on extra narrow screens */
   }
-
-  .brand {
-    gap: 7px;
-    font-size: 0.92rem;
-  }
-
-  .brand-badge {
-    width: 30px;
-    height: 30px;
-    border-radius: 10px;
-  }
-
-  .topbar-actions {
-    gap: 5px;
-  }
-
-  .pill {
-    padding: 6px 8px;
-    font-size: 0.72rem;
-  }
-
-  .hero-card {
-    padding: 22px 15px;
-  }
-
-  .eyebrow {
-    font-size: 0.74rem;
-    padding: 6px 9px;
-  }
-
-  .hero h1 {
-    font-size: clamp(1.7rem, 9vw, 2.25rem);
-  }
-
-  .hero p {
-    font-size: 0.9rem;
-  }
-
-  .message {
-    max-width: 96%;
-  }
-}
-
-@media (max-height: 700px) and (min-width: 701px) {
-  .app {
-    padding-bottom: 80px;
-  }
-
-  .hero {
-    padding-top: 14px;
-  }
-
-  .hero-card {
-    padding-top: 24px;
-    padding-bottom: 24px;
-  }
-
-  .chat-shell {
-    min-height: 62vh;
-    max-height: 72vh;
+  .hero-actions button.primary {
+    width: 100%;
   }
 }
