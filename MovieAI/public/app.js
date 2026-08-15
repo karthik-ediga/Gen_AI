@@ -71,7 +71,7 @@ function addMessage(text, role) {
 }
 
 function addWelcomeMessage() {
-  addMessage('Hi! I can help you discover films, compare stories, and find something perfect for tonight.', 'assistant');
+  addMessage('Hi! 👋 What can I help you with today?', 'assistant');
 }
 
 function streamAssistantReply(text, bubble) {
