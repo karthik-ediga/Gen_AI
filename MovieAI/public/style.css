@@ -267,8 +267,7 @@ button.primary:active {
 }
 
 button.primary:focus-visible,
-.composer button:focus-visible,
-.composer input:focus-visible {
+.composer button:focus-visible {
   outline: 2px solid var(--accent-2);
   outline-offset: 2px;
 }
@@ -448,6 +447,12 @@ button.primary:focus-visible,
   backdrop-filter: blur(24px) saturate(140%);
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   box-shadow: 0 14px 40px rgba(2, 8, 23, 0.3);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.composer:focus-within {
+  border-color: rgba(139, 92, 246, 0.45);
+  box-shadow: 0 14px 40px rgba(2, 8, 23, 0.35), 0 0 0 2px rgba(139, 92, 246, 0.2);
 }
 
 .composer input {
@@ -456,10 +461,19 @@ button.primary:focus-visible,
   background: transparent;
   border: none;
   outline: none;
+  box-shadow: none;
   color: white;
   padding: 8px 6px;
   font-size: 16px; /* Prevents iOS Safari input zoom */
   font-family: inherit;
+}
+
+.composer input:focus,
+.composer input:focus-visible,
+.composer input:active {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 .composer input::placeholder { color: #8b97a8; }
 .composer button {
