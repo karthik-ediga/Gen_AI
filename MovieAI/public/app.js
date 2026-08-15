@@ -39,19 +39,25 @@ function scrollToBottom(force = false) {
 
 function renderMarkdown(text) {
   if (!text) return '';
-  if (window.marked) {
-    if (!window.customRenderer) {
-      window.customRenderer = new marked.Renderer();
-      window.customRenderer.code = function(code, lang) {
-        const validLang = lang && window.hljs && window.hljs.getLanguage(lang) ? lang : 'plaintext';
-        const highlighted = window.hljs ? window.hljs.highlight(code, { language: validLang }).value : code;
-        return `<pre><code class="language-${validLang}">${highlighted}</code></pre>`;
-      };
-      marked.setOptions({ breaks: true, gfm: true });
+  try {
+    if (window.marked) {
+      if (!window.customRenderer) {
+        window.customRenderer = new marked.Renderer();
+        window.customRenderer.code = function(code, lang) {
+          const rawCode = typeof code === 'object' && code.text !== undefined ? code.text : code;
+          const language = (typeof code === 'object' ? code.lang : lang) || '';
+          const validLang = language && window.hljs && window.hljs.getLanguage(language) ? language : 'plaintext';
+          const highlighted = window.hljs ? window.hljs.highlight(rawCode, { language: validLang }).value : rawCode;
+          return `<pre><code class="language-${validLang}">${highlighted}</code></pre>`;
+        };
+        marked.setOptions({ breaks: true, gfm: true });
+      }
+      return marked.parse(text, { renderer: window.customRenderer });
     }
-    return marked.parse(text, { renderer: window.customRenderer });
+  } catch (err) {
+    console.warn('Markdown parse fallback:', err);
   }
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br />');
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br />');
 }
 
 function addMessage(text, role) {
@@ -71,7 +77,7 @@ function addMessage(text, role) {
 }
 
 function addWelcomeMessage() {
-  addMessage('Hi! 👋 What can I help you with today?', 'assistant');
+  addMessage('Hi! I can help you discover films, compare stories, and find something perfect for tonight.', 'assistant');
 }
 
 function streamAssistantReply(text, bubble) {
@@ -110,6 +116,7 @@ function streamAssistantReply(text, bubble) {
 }
 
 async function sendMessage(customText) {
+  if (sendBtn.disabled) return;
   const message = (customText || inputEl.value).trim();
   if (!message) return;
 
