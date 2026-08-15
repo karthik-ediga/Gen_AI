@@ -108,7 +108,7 @@ function streamAssistantReply(text, bubble) {
       requestAnimationFrame(step);
     } else {
       contentEl.innerHTML = renderMarkdown(fullText);
-      scrollToBottom(true);
+      scrollToBottom();
     }
   }
 
