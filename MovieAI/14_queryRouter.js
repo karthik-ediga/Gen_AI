@@ -161,81 +161,166 @@ const FETCH_HEADERS = {
 
 async function getWeather(city) {
   const encodedCity = encodeURIComponent(city);
-  
-  // ── Primary Source: WeatherAPI ──
+
   try {
-    const response = await fetch(
-      `https://api.weatherapi.com/v1/current.json?key=d6a3bcd7a43c4ed59c2155208252404&q=${encodedCity}&aqi=no`,
+    // =========================
+    // 1. WeatherAPI
+    // =========================
+    const res = await fetch(
+      `https://api.weatherapi.com/v1/current.json?key=${process.env.WEATHER_API_KEY}&q=${encodedCity}&aqi=no`,
       { headers: FETCH_HEADERS }
     );
-    if (response.ok) {
-      const data = await response.json();
+
+    if (res.ok) {
+      const data = await res.json();
+
       return `The current weather in ${data.location.name}, ${data.location.country} is ${data.current.temp_c}°C with ${data.current.condition.text.toLowerCase()}. Humidity is ${data.current.humidity}% and wind speed is ${data.current.wind_kph} km/h.`;
     }
-  } catch (err) {
-    console.warn("⚠️ WeatherAPI primary failed, trying Open-Meteo fallback:", err.message);
+
+    console.warn(
+      `⚠️ WeatherAPI returned ${res.status}, trying Open-Meteo fallback...`
+    );
+
+  } catch (e) {
+    console.warn(
+      "⚠️ WeatherAPI failed, trying Open-Meteo fallback:",
+      e.message
+    );
   }
 
-  // ── Fallback Source: Open-Meteo (No API Key required, Cloud-friendly) ──
+  // =========================
+  // 2. Open-Meteo Fallback
+  // =========================
   try {
-    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodedCity}&count=1&language=en&format=json`, { headers: FETCH_HEADERS });
+    const geoRes = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodedCity}&count=1&language=en&format=json`,
+      { headers: FETCH_HEADERS }
+    );
+
+    if (!geoRes.ok) {
+      throw new Error(`Geocoding API returned ${geoRes.status}`);
+    }
+
     const geoData = await geoRes.json();
+
     if (geoData.results && geoData.results.length > 0) {
       const { latitude, longitude, name, country } = geoData.results[0];
-      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m`, { headers: FETCH_HEADERS });
+
+      const weatherRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m`,
+        { headers: FETCH_HEADERS }
+      );
+
+      if (!weatherRes.ok) {
+        throw new Error(`Open-Meteo returned ${weatherRes.status}`);
+      }
+
       const weatherData = await weatherRes.json();
+
       if (weatherData.current) {
-        const temp = weatherData.current.temperature_2m;
-        const humidity = weatherData.current.relative_humidity_2m;
-        const wind = weatherData.current.wind_speed_10m;
-        return `The current weather in ${name}, ${country} is ${temp}°C. Humidity is ${humidity}% and wind speed is ${wind} km/h.`;
+        return `The current weather in ${name}, ${country} is ${weatherData.current.temperature_2m}°C. Humidity is ${weatherData.current.relative_humidity_2m}% and wind speed is ${weatherData.current.wind_speed_10m} km/h.`;
       }
     }
-  } catch (err) {
-    console.warn("⚠️ Open-Meteo fallback failed:", err.message);
+
+  } catch (e) {
+    console.warn("⚠️ Open-Meteo fallback failed:", e.message);
   }
 
+  // =========================
+  // 3. Both APIs failed
+  // =========================
   throw new Error("Unable to fetch weather data from any live source");
 }
 
 async function getCrypto(coin) {
-  const encodedCoin = encodeURIComponent(coin.toLowerCase());
+  if (!coin || !coin.trim()) {
+    throw new Error("Coin identifier not provided for crypto lookup");
+  }
 
-  // ── Primary Source: CoinGecko ──
+  const encodedCoin = encodeURIComponent(coin.trim().toLowerCase());
+
+  // ==========================================
+  // 1. Primary: CoinGecko
+  // ==========================================
   try {
-    const response = await fetch(
+    const res = await fetch(
       `https://api.coingecko.com/api/v3/coins/markets?vs_currency=inr&ids=${encodedCoin}`,
       { headers: FETCH_HEADERS }
     );
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const coinData = data[0];
-        return `${coinData.name} (${coinData.symbol.toUpperCase()}) is currently trading at ₹${coinData.current_price ? coinData.current_price.toLocaleString("en-IN") : "N/A"}. Its market capitalization is ₹${coinData.market_cap ? coinData.market_cap.toLocaleString("en-IN") : "N/A"}, with a 24-hour price change of ${coinData.price_change_percentage_24h != null ? coinData.price_change_percentage_24h.toFixed(2) : "0"}%.`;
+
+    if (res.ok) {
+      const data = await res.json();
+
+      if (Array.isArray(data) && data.length > 0) {
+        const c = data[0];
+
+        const price = c.current_price != null
+          ? `₹${c.current_price.toLocaleString("en-IN")}`
+          : "N/A";
+
+        const marketCap = c.market_cap != null
+          ? `₹${c.market_cap.toLocaleString("en-IN")}`
+          : "N/A";
+
+        const change24h = c.price_change_percentage_24h != null
+          ? c.price_change_percentage_24h.toFixed(2)
+          : "0.00";
+
+        return `${c.name} (${c.symbol.toUpperCase()}) is currently trading at ${price}. Market Cap: ${marketCap}, 24h Change: ${change24h}%.`;
       }
+    } else {
+      console.warn(
+        `⚠️ CoinGecko returned ${res.status}, trying CoinCap fallback...`
+      );
     }
-  } catch (err) {
-    console.warn("⚠️ CoinGecko primary failed (likely Cloudflare block on Render), trying CoinCap fallback:", err.message);
+  } catch (e) {
+    console.warn(
+      "⚠️ CoinGecko primary failed, trying CoinCap fallback:",
+      e.message
+    );
   }
 
-  // ── Fallback Source: CoinCap API ──
+  // ==========================================
+  // 2. Secondary: CoinCap
+  // ==========================================
   try {
-    const response = await fetch(`https://api.coincap.io/v2/assets/${encodedCoin}`, { headers: FETCH_HEADERS });
-    if (response.ok) {
-      const { data } = await response.json();
+    const res = await fetch(
+      `https://api.coincap.io/v2/assets/${encodedCoin}`,
+      { headers: FETCH_HEADERS }
+    );
+
+    if (res.ok) {
+      const { data } = await res.json();
+
       if (data) {
         const priceUsd = parseFloat(data.priceUsd);
-        const priceInr = priceUsd * 86.5; // Approximate USD to INR conversion
         const change24h = parseFloat(data.changePercent24Hr);
-        const marketCapInr = parseFloat(data.marketCapUsd) * 86.5;
-        return `${data.name} (${data.symbol.toUpperCase()}) is currently trading at approx ₹${priceInr.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ($${priceUsd.toFixed(2)} USD). Its market capitalization is ₹${marketCapInr.toLocaleString("en-IN", { maximumFractionDigits: 0 })}, with a 24-hour price change of ${change24h.toFixed(2)}%.`;
+
+        if (!Number.isNaN(priceUsd)) {
+          // Approximate USD → INR conversion
+          const priceInr = priceUsd * 86.5;
+
+          return `${data.name} (${data.symbol.toUpperCase()}) is trading at approximately ₹${priceInr.toLocaleString(
+            "en-IN",
+            { maximumFractionDigits: 2 }
+          )} ($${priceUsd.toFixed(2)} USD). 24h Change: ${
+            Number.isNaN(change24h) ? "0.00" : change24h.toFixed(2)
+          }%.`;
+        }
       }
+    } else {
+      console.warn(`⚠️ CoinCap returned ${res.status}`);
     }
-  } catch (err) {
-    console.warn("⚠️ CoinCap fallback failed:", err.message);
+  } catch (e) {
+    console.warn("⚠️ CoinCap fallback failed:", e.message);
   }
 
-  throw new Error("Cryptocurrency data unreachable from live sources");
+  // ==========================================
+  // 3. Both APIs failed
+  // ==========================================
+  throw new Error(
+    "Cryptocurrency data unreachable from live sources"
+  );
 }
 
 // =====================================================================
