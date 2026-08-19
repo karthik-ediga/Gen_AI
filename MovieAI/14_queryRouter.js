@@ -5,8 +5,8 @@
 // Decision Logic:
 //   IF query is about movies → Use existing GraphRAG pipeline
 //      (Entity Resolution → Classification → Graph/Similarity Handlers)
-//
-//   IF query is NOT about movies → Use Gemini LLM directly
+//   IF query is about weather/Crypto → MCP server (get_weather / get_crypto tools)
+//   IF query is NOT about movies/API → Use Gemini LLM directly
 //      (Fast, handles any topic)
 //
 // This prevents wasting compute on non-movie queries that won't
@@ -14,12 +14,177 @@
 //
 // =====================================================================
 
+import path from "path";
+import { fileURLToPath } from "url";
+import { MultiServerMCPClient } from "@langchain/mcp-adapters";
+
 import { llm } from "./2_config.js";
 import { resolveQueryEntities } from "./9_entityResolver.js";
 import { classifyQuery } from "./10_queryClassifier.js";
 import { handleGraphQuery } from "./11_graphHandler.js";
 import { handleSimilarityQuery } from "./12_similarityHandler.js";
 import { extractTextContent } from "./utils/llmUtils.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const MCP_SERVER_PATH = path.join(__dirname, "mcp_api_server.js");
+
+// =====================================================================
+// MCP CLIENT (WEATHER + CRYPTO)
+// Uses @langchain/mcp-adapters MultiServerMCPClient (stateless sessions
+// by default). Tools are loaded once, then invoked as LangChain tools.
+// See: https://github.com/langchain-ai/langchainjs/tree/main/libs/langchain-mcp-adapters
+// =====================================================================
+
+let mcpClient = null;
+let mcpTools = null;
+let mcpConnecting = null;
+const MCP_CALL_TIMEOUT_MS = 15_000;
+
+async function connectMcpClient() {
+  const client = new MultiServerMCPClient({
+    throwOnLoadError: true,
+    prefixToolNameWithServerName: false,
+    useStandardContentBlocks: true,
+    defaultToolTimeout: MCP_CALL_TIMEOUT_MS,
+    onConnectionError: "throw",
+    mcpServers: {
+      apiserver: {
+        transport: "stdio",
+        command: "node",
+        args: [MCP_SERVER_PATH],
+        // Stdio MCP children only inherit a small env whitelist by default
+        // (PATH, USERPROFILE, …) — custom keys like COINGECKO_KEY must be passed.
+        env: {
+          COINGECKO_KEY: process.env.COINGECKO_KEY ?? "",
+        },
+        restart: {
+          enabled: true,
+          maxAttempts: 3,
+          delayMs: 1000,
+        },
+      },
+    },
+  });
+
+  const tools = await client.getTools();
+  return { client, tools };
+}
+
+async function getMcpTools() {
+  if (mcpTools) return mcpTools;
+
+  if (!mcpConnecting) {
+    mcpConnecting = connectMcpClient()
+      .then(({ client, tools }) => {
+        mcpClient = client;
+        mcpTools = tools;
+        return tools;
+      })
+      .finally(() => {
+        mcpConnecting = null;
+      });
+  }
+
+  return mcpConnecting;
+}
+
+async function closeMcpClient() {
+  if (mcpClient) {
+    try {
+      await mcpClient.close();
+    } catch (err) {
+      console.warn("⚠️ Error closing MCP client:", err.message);
+    } finally {
+      mcpClient = null;
+      mcpTools = null;
+    }
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, async () => {
+    await closeMcpClient();
+    process.exit(0);
+  });
+}
+
+function extractToolOutput(result) {
+  if (result == null) return null;
+  if (typeof result === "string") return result;
+  if (Array.isArray(result)) {
+    const text = result
+      .map((block) => {
+        if (typeof block === "string") return block;
+        if (block?.text) return block.text;
+        if (block?.type === "text" && typeof block?.text === "string") return block.text;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    return text || JSON.stringify(result);
+  }
+  if (typeof result === "object" && result.text) return result.text;
+  return String(result);
+}
+
+async function callMcpTool(name, args) {
+  const tools = await getMcpTools();
+  const tool = tools.find((t) => t.name === name);
+  if (!tool) {
+    throw new Error(`MCP tool "${name}" not found. Available: ${tools.map((t) => t.name).join(", ") || "(none)"}`);
+  }
+
+  try {
+    return extractToolOutput(await tool.invoke(args));
+  } catch (err) {
+    // Tool execution errors (e.g. CoinGecko 401) are not a dead session — don't reconnect.
+    const msg = err?.message || String(err);
+    if (/returned an error|HTTP error|401|403|404/i.test(msg)) {
+      throw err;
+    }
+
+    // Drop cached client/tools so the next call reconnects (stdio child may have died).
+    mcpTools = null;
+    try {
+      await mcpClient?.close();
+    } catch {
+      // ignore close errors during reconnect
+    }
+    mcpClient = null;
+
+    console.warn(`⚠️ MCP call "${name}" failed (${err.message}), retrying once...`);
+    const freshTools = await getMcpTools();
+    const freshTool = freshTools.find((t) => t.name === name);
+    if (!freshTool) {
+      throw new Error(`MCP tool "${name}" not found after reconnect`);
+    }
+    return extractToolOutput(await freshTool.invoke(args));
+  }
+}
+
+async function getWeather(city) {
+  if (!city || !city.trim()) {
+    throw new Error("City name not provided for weather lookup");
+  }
+  try {
+    return await callMcpTool("get_weather", { city });
+  } catch (error) {
+    console.error("Error fetching weather via MCP:", error.message);
+    return { error: error.message };
+  }
+}
+
+async function getCrypto(coin) {
+  if (!coin || !coin.trim()) {
+    throw new Error("Coin identifier not provided for crypto lookup");
+  }
+  try {
+    return await callMcpTool("get_crypto", { coin });
+  } catch (error) {
+    console.warn("⚠️ Crypto MCP call failed:", error.message);
+    return null;
+  }
+}
 
 // =====================================================================
 // STEP 1: DETECT IF QUERY IS ABOUT MOVIES
@@ -153,176 +318,6 @@ async function handleGeneralQuery(query) {
   return extractTextContent(response.content);
 }
 
-const FETCH_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Accept": "application/json",
-  "Accept-Language": "en-US,en;q=0.9",
-};
-
-async function getWeather(city) {
-  const encodedCity = encodeURIComponent(city);
-
-  try {
-    // =========================
-    // 1. WeatherAPI
-    // =========================
-    const res = await fetch(
-      `https://api.weatherapi.com/v1/current.json?key=${process.env.WEATHER_API_KEY}&q=${encodedCity}&aqi=no`,
-      { headers: FETCH_HEADERS }
-    );
-
-    if (res.ok) {
-      const data = await res.json();
-
-      return `The current weather in ${data.location.name}, ${data.location.country} is ${data.current.temp_c}°C with ${data.current.condition.text.toLowerCase()}. Humidity is ${data.current.humidity}% and wind speed is ${data.current.wind_kph} km/h.`;
-    }
-
-    console.warn(
-      `⚠️ WeatherAPI returned ${res.status}, trying Open-Meteo fallback...`
-    );
-
-  } catch (e) {
-    console.warn(
-      "⚠️ WeatherAPI failed, trying Open-Meteo fallback:",
-      e.message
-    );
-  }
-
-  // =========================
-  // 2. Open-Meteo Fallback
-  // =========================
-  try {
-    const geoRes = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodedCity}&count=1&language=en&format=json`,
-      { headers: FETCH_HEADERS }
-    );
-
-    if (!geoRes.ok) {
-      throw new Error(`Geocoding API returned ${geoRes.status}`);
-    }
-
-    const geoData = await geoRes.json();
-
-    if (geoData.results && geoData.results.length > 0) {
-      const { latitude, longitude, name, country } = geoData.results[0];
-
-      const weatherRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m`,
-        { headers: FETCH_HEADERS }
-      );
-
-      if (!weatherRes.ok) {
-        throw new Error(`Open-Meteo returned ${weatherRes.status}`);
-      }
-
-      const weatherData = await weatherRes.json();
-
-      if (weatherData.current) {
-        return `The current weather in ${name}, ${country} is ${weatherData.current.temperature_2m}°C. Humidity is ${weatherData.current.relative_humidity_2m}% and wind speed is ${weatherData.current.wind_speed_10m} km/h.`;
-      }
-    }
-
-  } catch (e) {
-    console.warn("⚠️ Open-Meteo fallback failed:", e.message);
-  }
-
-  // =========================
-  // 3. Both APIs failed
-  // =========================
-  throw new Error("Unable to fetch weather data from any live source");
-}
-
-async function getCrypto(coin) {
-  if (!coin || !coin.trim()) {
-    throw new Error("Coin identifier not provided for crypto lookup");
-  }
-
-  const encodedCoin = encodeURIComponent(coin.trim().toLowerCase());
-
-  // ==========================================
-  // 1. Primary: CoinGecko
-  // ==========================================
-  try {
-    const res = await fetch(
-      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=inr&ids=${encodedCoin}`,
-      { headers: FETCH_HEADERS }
-    );
-
-    if (res.ok) {
-      const data = await res.json();
-
-      if (Array.isArray(data) && data.length > 0) {
-        const c = data[0];
-
-        const price = c.current_price != null
-          ? `₹${c.current_price.toLocaleString("en-IN")}`
-          : "N/A";
-
-        const marketCap = c.market_cap != null
-          ? `₹${c.market_cap.toLocaleString("en-IN")}`
-          : "N/A";
-
-        const change24h = c.price_change_percentage_24h != null
-          ? c.price_change_percentage_24h.toFixed(2)
-          : "0.00";
-
-        return `${c.name} (${c.symbol.toUpperCase()}) is currently trading at ${price}. Market Cap: ${marketCap}, 24h Change: ${change24h}%.`;
-      }
-    } else {
-      console.warn(
-        `⚠️ CoinGecko returned ${res.status}, trying CoinCap fallback...`
-      );
-    }
-  } catch (e) {
-    console.warn(
-      "⚠️ CoinGecko primary failed, trying CoinCap fallback:",
-      e.message
-    );
-  }
-
-  // ==========================================
-  // 2. Secondary: CoinCap
-  // ==========================================
-  try {
-    const res = await fetch(
-      `https://api.coincap.io/v2/assets/${encodedCoin}`,
-      { headers: FETCH_HEADERS }
-    );
-
-    if (res.ok) {
-      const { data } = await res.json();
-
-      if (data) {
-        const priceUsd = parseFloat(data.priceUsd);
-        const change24h = parseFloat(data.changePercent24Hr);
-
-        if (!Number.isNaN(priceUsd)) {
-          // Approximate USD → INR conversion
-          const priceInr = priceUsd * 86.5;
-
-          return `${data.name} (${data.symbol.toUpperCase()}) is trading at approximately ₹${priceInr.toLocaleString(
-            "en-IN",
-            { maximumFractionDigits: 2 }
-          )} ($${priceUsd.toFixed(2)} USD). 24h Change: ${
-            Number.isNaN(change24h) ? "0.00" : change24h.toFixed(2)
-          }%.`;
-        }
-      }
-    } else {
-      console.warn(`⚠️ CoinCap returned ${res.status}`);
-    }
-  } catch (e) {
-    console.warn("⚠️ CoinCap fallback failed:", e.message);
-  }
-
-  // ==========================================
-  // 3. Both APIs failed
-  // ==========================================
-  throw new Error(
-    "Cryptocurrency data unreachable from live sources"
-  );
-}
-
 // =====================================================================
 // MAIN ROUTER FUNCTION
 // =====================================================================
@@ -356,7 +351,7 @@ async function routeQuery(query) {
 
       case "livecall":
         try {
-          console.log(`🌐 Live Call: ${route.service}`);
+          console.log(`🌐 Live Call (MCP): ${route.service}`);
 
           switch (route.service) {
             case "weather":
@@ -405,4 +400,4 @@ async function routeQuery(query) {
   }
 }
 
-export { routeQuery, handleMovieQuery, handleGeneralQuery };
+export { routeQuery, handleMovieQuery, handleGeneralQuery, closeMcpClient };
