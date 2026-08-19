@@ -4,23 +4,19 @@ const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('prompt');
 const sendBtn = document.getElementById('sendBtn');
 const startBtn = document.getElementById('startBtn');
-const sampleBtn = document.getElementById('sampleBtn');
+const composerEl = document.getElementById('composer');
 
 const AUTO_SCROLL_THRESHOLD = 140;
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const isFinePointer = window.matchMedia('(pointer: fine)');
+
 let isPinnedToBottom = true;
-let isScrollTicking = false;
+let inFlight = null;
 
 function enterChat() {
   appEl.classList.add('is-chat');
   heroEl.classList.add('is-chat');
-  inputEl.focus();
-
-  if (window.innerWidth <= 960) {
-    const chatShell = document.getElementById('chatShell');
-    if (chatShell) {
-      chatShell.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-  }
+  requestAnimationFrame(() => inputEl.focus());
 }
 
 function checkPinnedToBottom() {
@@ -37,27 +33,59 @@ function scrollToBottom(force = false) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function sanitizeHtml(html) {
+  return String(html)
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+function formatReply(reply) {
+  if (reply == null) return '';
+  if (typeof reply === 'string') return reply;
+  if (typeof reply === 'object') {
+    if (reply.error) return String(reply.error);
+    try {
+      return JSON.stringify(reply, null, 2);
+    } catch {
+      return String(reply);
+    }
+  }
+  return String(reply);
+}
+
 function renderMarkdown(text) {
   if (!text) return '';
   try {
     if (window.marked) {
       if (!window.customRenderer) {
         window.customRenderer = new marked.Renderer();
-        window.customRenderer.code = function(code, lang) {
+        window.customRenderer.code = function (code, lang) {
           const rawCode = typeof code === 'object' && code.text !== undefined ? code.text : code;
           const language = (typeof code === 'object' ? code.lang : lang) || '';
           const validLang = language && window.hljs && window.hljs.getLanguage(language) ? language : 'plaintext';
-          const highlighted = window.hljs ? window.hljs.highlight(rawCode, { language: validLang }).value : rawCode;
+          const highlighted = window.hljs
+            ? window.hljs.highlight(String(rawCode), { language: validLang }).value
+            : escapeHtml(String(rawCode));
           return `<pre><code class="language-${validLang}">${highlighted}</code></pre>`;
         };
         marked.setOptions({ breaks: true, gfm: true });
       }
-      return marked.parse(text, { renderer: window.customRenderer });
+      return sanitizeHtml(marked.parse(text, { renderer: window.customRenderer }));
     }
   } catch (err) {
     console.warn('Markdown parse fallback:', err);
   }
-  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br />');
+  return escapeHtml(text).replace(/\n/g, '<br />');
 }
 
 function addMessage(text, role) {
@@ -72,7 +100,7 @@ function addMessage(text, role) {
   }
   bubble.appendChild(content);
   messagesEl.appendChild(bubble);
-  requestAnimationFrame(() => scrollToBottom());
+  requestAnimationFrame(() => scrollToBottom(true));
   return bubble;
 }
 
@@ -85,26 +113,24 @@ function streamAssistantReply(text, bubble) {
   const fullText = String(text || '').trim();
 
   if (!fullText) {
-    contentEl.innerHTML = 'No response generated.';
+    contentEl.textContent = 'No response generated.';
+    return;
+  }
+
+  if (prefersReducedMotion.matches || fullText.length < 48) {
+    contentEl.innerHTML = renderMarkdown(fullText);
+    scrollToBottom();
     return;
   }
 
   let index = 0;
-  let lastRenderTime = 0;
-  const charsPerFrame = 4; // Advance 4 characters per RAF frame for fast, smooth text streaming
-  const renderInterval = 35; // Re-parse markdown every 35ms to eliminate layout thrashing
+  const charsPerFrame = fullText.length > 1200 ? 18 : 8;
 
-  function step(timestamp) {
+  function step() {
     if (index < fullText.length) {
       index = Math.min(index + charsPerFrame, fullText.length);
-      
-      // Batch markdown updates to keep 60fps frame rate smooth
-      if (timestamp - lastRenderTime > renderInterval || index >= fullText.length) {
-        contentEl.innerHTML = renderMarkdown(fullText.slice(0, index));
-        lastRenderTime = timestamp;
-        scrollToBottom();
-      }
-
+      contentEl.innerHTML = escapeHtml(fullText.slice(0, index)).replace(/\n/g, '<br />');
+      scrollToBottom();
       requestAnimationFrame(step);
     } else {
       contentEl.innerHTML = renderMarkdown(fullText);
@@ -125,65 +151,103 @@ async function sendMessage(customText) {
   inputEl.value = '';
   sendBtn.disabled = true;
 
+  if (inFlight) {
+    inFlight.abort();
+  }
+  const controller = new AbortController();
+  inFlight = controller;
+
   const thinkingBubble = addMessage('Thinking…', 'assistant');
 
   try {
     const response = await fetch('/api/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message }),
+      signal: controller.signal,
     });
-    const data = await response.json();
-    messagesEl.removeChild(thinkingBubble);
-    const reply = data.reply || data.error || 'No response received.';
-    const assistantBubble = addMessage('', 'assistant');
-    if (!response.ok) {
-      streamAssistantReply(`⚠️ ${reply}`, assistantBubble);
-    } else {
-      streamAssistantReply(reply, assistantBubble);
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = { error: 'The assistant returned an invalid response.' };
     }
+
+    if (thinkingBubble.parentNode) {
+      messagesEl.removeChild(thinkingBubble);
+    }
+
+    const reply = formatReply(data.reply || data.error || 'No response received.');
+    const assistantBubble = addMessage('', 'assistant');
+    streamAssistantReply(response.ok ? reply : `⚠️ ${reply}`, assistantBubble);
   } catch (error) {
+    if (error?.name === 'AbortError') return;
     if (thinkingBubble.parentNode) {
       messagesEl.removeChild(thinkingBubble);
     }
     const assistantBubble = addMessage('', 'assistant');
     streamAssistantReply('Unable to reach the assistant right now. Please try again in a moment.', assistantBubble);
   } finally {
+    if (inFlight === controller) inFlight = null;
     sendBtn.disabled = false;
     inputEl.focus();
   }
 }
 
-sendBtn.addEventListener('click', () => sendMessage());
-inputEl.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') {
+if (composerEl) {
+  composerEl.addEventListener('submit', (event) => {
     event.preventDefault();
     sendMessage();
-  }
-});
+  });
+} else {
+  sendBtn.addEventListener('click', () => sendMessage());
+  inputEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      sendMessage();
+    }
+  });
+}
+
 if (startBtn) {
   startBtn.addEventListener('click', () => {
     enterChat();
-    inputEl.focus();
-  });
-}
-if (sampleBtn) {
-  sampleBtn.addEventListener('click', () => {
-    enterChat();
-    inputEl.value = 'Recommend a moody sci-fi film with a strong ending.';
-    inputEl.focus();
   });
 }
 
-// Optimized Canvas Particles Background
-const particlesCanvas = document.getElementById('particles');
-if (particlesCanvas) {
-  const ctx = particlesCanvas.getContext('2d', { alpha: true });
+function setupParticles() {
+  const particlesCanvas = document.getElementById('particles');
+  if (!particlesCanvas) return;
+
+  const reduceMotion = () => prefersReducedMotion.matches;
+  const useParticles = () => !reduceMotion() && window.innerWidth >= 720 && isFinePointer.matches;
+
+  if (!useParticles()) {
+    particlesCanvas.style.display = 'none';
+    return;
+  }
+
+  const ctx = particlesCanvas.getContext('2d', { alpha: true, desynchronized: true });
   let pointer = { x: null, y: null };
   const particles = [];
+  let running = true;
+  let rafId = 0;
+  let resizeTimer = 0;
+
+  function particleCount() {
+    return Math.min(36, Math.max(12, Math.floor(window.innerWidth / 48)));
+  }
 
   function resizeCanvas() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (!useParticles()) {
+      running = false;
+      particlesCanvas.style.display = 'none';
+      cancelAnimationFrame(rafId);
+      return;
+    }
+    particlesCanvas.style.display = '';
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     particlesCanvas.width = window.innerWidth * dpr;
     particlesCanvas.height = window.innerHeight * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -192,20 +256,21 @@ if (particlesCanvas) {
 
   function initParticles() {
     particles.length = 0;
-    const count = Math.min(60, Math.floor(window.innerWidth / 20));
+    const count = particleCount();
     for (let i = 0; i < count; i += 1) {
       particles.push({
         x: Math.random() * window.innerWidth,
         y: Math.random() * window.innerHeight,
-        vx: (Math.random() - 0.5) * 0.25,
-        vy: (Math.random() - 0.5) * 0.25,
+        vx: (Math.random() - 0.5) * 0.22,
+        vy: (Math.random() - 0.5) * 0.22,
         r: Math.random() * 1.2 + 0.4,
-        alpha: Math.random() * 0.4 + 0.15
+        alpha: Math.random() * 0.35 + 0.12,
       });
     }
   }
 
   function drawParticles() {
+    if (!running) return;
     ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     for (const p of particles) {
       p.x += p.vx;
@@ -217,7 +282,7 @@ if (particlesCanvas) {
         const dx = p.x - pointer.x;
         const dy = p.y - pointer.y;
         const distSq = dx * dx + dy * dy;
-        if (distSq < 10000) { // 100px radius squared
+        if (distSq < 10000 && distSq > 0.01) {
           const dist = Math.sqrt(distSq);
           const force = (100 - dist) / 100;
           p.x += (dx / dist) * force * 0.5;
@@ -230,23 +295,34 @@ if (particlesCanvas) {
       ctx.fillStyle = `rgba(255,255,255,${p.alpha})`;
       ctx.fill();
     }
-    requestAnimationFrame(drawParticles);
+    rafId = requestAnimationFrame(drawParticles);
   }
 
-  let moveTimeout;
-  window.addEventListener('resize', resizeCanvas, { passive: true });
-  window.addEventListener('orientationchange', () => {
-    setTimeout(resizeCanvas, 100);
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resizeCanvas, 180);
   }, { passive: true });
+
+  window.addEventListener('orientationchange', () => {
+    setTimeout(resizeCanvas, 180);
+  }, { passive: true });
+
   window.addEventListener('pointermove', (event) => {
     pointer.x = event.clientX;
     pointer.y = event.clientY;
-    clearTimeout(moveTimeout);
-    moveTimeout = setTimeout(() => { pointer.x = null; pointer.y = null; }, 2000);
   }, { passive: true });
 
+  document.addEventListener('visibilitychange', () => {
+    running = document.visibilityState === 'visible' && useParticles();
+    if (running) drawParticles();
+    else cancelAnimationFrame(rafId);
+  });
+
+  prefersReducedMotion.addEventListener('change', resizeCanvas);
+
   resizeCanvas();
-  drawParticles();
+  if (useParticles()) drawParticles();
 }
 
+setupParticles();
 addWelcomeMessage();
