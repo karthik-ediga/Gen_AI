@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#020617" />
     <title>Atlas AI</title>
     <meta name="description" content="Immersive movie discovery assistant with cinematic visuals and conversational AI." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -12,19 +13,19 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div class="aurora"></div>
-    <div class="grid"></div>
-    <canvas id="particles"></canvas>
+    <div class="aurora" aria-hidden="true"></div>
+    <div class="grid" aria-hidden="true"></div>
+    <canvas id="particles" aria-hidden="true"></canvas>
 
     <div class="app" id="app">
       <nav class="topbar">
         <div class="brand">
-          <div class="brand-badge">✦</div>
+          <div class="brand-badge" aria-hidden="true">✦</div>
           <div>Atlas AI <small>intelligence</small></div>
         </div>
         <div class="topbar-actions">
           <span class="pill">✨ Live insights</span>
-          <span class="pill">🔗 Connected Tools</span>
+          <span class="pill hide-xs">🔗 Connected Tools</span>
         </div>
       </nav>
 
@@ -34,29 +35,39 @@
           <h1>Explore answers to any question with a calm, intelligent assistant.</h1>
           <p>Ask about topics, complex ideas, recommendations, or everyday questions. This experience layers motion, clarity, and thoughtful responses into a modern conversation flow.</p>
           <div class="hero-actions">
-            <button class="primary" id="startBtn">Start exploring</button>
+            <button type="button" class="primary" id="startBtn">Start exploring</button>
           </div>
         </div>
 
         <div class="chat-shell" id="chatShell">
           <div class="chat-head">
             <div class="chat-meta">
-              <span class="status-dot"></span>
+              <span class="status-dot" aria-hidden="true"></span>
               <strong>Assistant</strong>
             </div>
-            <div class="pill">Streaming response</div>
+            <div class="pill hide-sm">Streaming response</div>
           </div>
-          <div class="messages" id="messages"></div>
-          <div class="composer">
-            <input id="prompt" placeholder="Ask me anything..." />
-            <button id="sendBtn" aria-label="Send">↑</button>
-          </div>
+          <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+          <form class="composer" id="composer" autocomplete="off">
+            <label class="sr-only" for="prompt">Message</label>
+            <input
+              id="prompt"
+              name="prompt"
+              type="text"
+              placeholder="Ask me anything..."
+              autocomplete="off"
+              enterkeyhint="send"
+              autocapitalize="sentences"
+              maxlength="8000"
+            />
+            <button type="submit" id="sendBtn" aria-label="Send">↑</button>
+          </form>
         </div>
       </section>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="./app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+    <script src="./app.js" defer></script>
   </body>
 </html>
