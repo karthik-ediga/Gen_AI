@@ -53,9 +53,12 @@ async function connectMcpClient() {
         command: "node",
         args: [MCP_SERVER_PATH],
         // Stdio MCP children only inherit a small env whitelist by default
-        // (PATH, USERPROFILE, …) — custom keys like COINGECKO_KEY must be passed.
+        // (PATH, USERPROFILE, …). We only forward COINGECKO_KEY if the router's
+        // OWN process actually has it — otherwise we'd inject an empty string,
+        // which blocks the child's own dotenv.config() from filling it in
+        // (dotenv never overwrites a key that's already present, even if empty).
         env: {
-          COINGECKO_KEY: process.env.COINGECKO_KEY ?? "",
+          ...(process.env.COINGECKO_KEY ? { COINGECKO_KEY: process.env.COINGECKO_KEY } : {}),
         },
         restart: {
           enabled: true,
@@ -137,13 +140,14 @@ async function callMcpTool(name, args) {
   try {
     return extractToolOutput(await tool.invoke(args));
   } catch (err) {
-    // Tool execution errors (e.g. CoinGecko 401) are not a dead session — don't reconnect.
-    const msg = err?.message || String(err);
-    if (/returned an error|HTTP error|401|403|404/i.test(msg)) {
+    // ToolException = the tool ran but returned isError:true (bad coin id, upstream
+    // API failure, etc). The MCP session itself is healthy — don't reconnect, just surface it.
+    if (err?.name === "ToolException") {
       throw err;
     }
 
-    // Drop cached client/tools so the next call reconnects (stdio child may have died).
+    // Anything else (MCPClientError, transport/session failures) usually means the
+    // stdio child died or the pipe broke. Drop the cached client/tools and retry once.
     mcpTools = null;
     try {
       await mcpClient?.close();
@@ -162,28 +166,50 @@ async function callMcpTool(name, args) {
   }
 }
 
+// Note: these three intentionally do NOT catch/swallow MCP errors — they let
+// failures propagate up to routeQuery's "livecall" catch block, which is the
+// single place that decides the user-facing fallback (LLM retry, then a
+// generic message). This keeps the return contract consistent: on success
+// these always resolve to a string; on failure they always reject.
+
 async function getWeather(city) {
   if (!city || !city.trim()) {
     throw new Error("City name not provided for weather lookup");
   }
-  try {
-    return await callMcpTool("get_weather", { city });
-  } catch (error) {
-    console.error("Error fetching weather via MCP:", error.message);
-    return { error: error.message };
-  }
+  return callMcpTool("get_weather", { city });
 }
 
 async function getCrypto(coin) {
   if (!coin || !coin.trim()) {
     throw new Error("Coin identifier not provided for crypto lookup");
   }
-  try {
-    return await callMcpTool("get_crypto", { coin });
-  } catch (error) {
-    console.warn("⚠️ Crypto MCP call failed:", error.message);
-    return null;
+  return callMcpTool("get_crypto", { coin });
+}
+
+// ── News: RSS Feed Manager (MCP tool) → dedupe/sort (MCP tool) → LLM summary (here) ──
+
+async function getNews(topic) {
+  if (!topic || !topic.trim()) {
+    throw new Error("News topic not provided for lookup");
   }
+  return callMcpTool("get_news", { topic });
+}
+
+async function summarizeNews(topic, rawHeadlines) {
+  const response = await llm.invoke([
+    {
+      role: "system",
+      content:
+        "You are a news editor. Given a deduplicated, recency-sorted list of headlines with " +
+        "sources and links, write a concise, neutral summary (4-6 bullet points max) of the " +
+        "latest news on the given topic. Do not fabricate details beyond what's in the headlines.",
+    },
+    {
+      role: "human",
+      content: `Topic: ${topic}\n\nHeadlines:\n${rawHeadlines}`,
+    },
+  ]);
+  return extractTextContent(response.content);
 }
 
 // =====================================================================
@@ -231,7 +257,21 @@ If no specific coin is mentioned, return:
 {
   "type": "general"
 }
-4. General
+4. News
+Use ONLY when the user asks for news, headlines, latest updates, or "what's happening" about ANY topic
+(not limited to crypto — can be sports, politics, tech, entertainment, etc).
+Extract the topic as a short search phrase.
+Output:
+{
+  "type": "livecall",
+  "service": "news",
+  "topic": "<topic>"
+}
+If no topic is mentioned, return:
+{
+  "type": "general"
+}
+5. General
 Everything else.
 Output:
 {
@@ -361,6 +401,12 @@ async function routeQuery(query) {
             case "crypto":
               answer = await getCrypto(route.coin);
               return answer;
+
+            case "news": {
+              const rawHeadlines = await getNews(route.topic);
+              answer = await summarizeNews(route.topic, rawHeadlines);
+              return answer;
+            }
 
             default:
               console.warn("⚠️ Unknown live service:", route.service);
