@@ -27,6 +27,63 @@ const server = new McpServer({
 // ---------------------------------------------------------------------
 // WEATHER TOOL
 // ---------------------------------------------------------------------
+async function fetchWeatherFromOpenMeteo(city) {
+  const geoRes = await fetch(
+    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`,
+    { headers: { "User-Agent": "MovieAI-Weather/1.0" } }
+  );
+  if (!geoRes.ok) {
+    throw new Error(`Geocoding request failed with status ${geoRes.status}`);
+  }
+  const geoData = await geoRes.json();
+  if (!geoData.results || geoData.results.length === 0) {
+    throw new Error(`City "${city}" not found`);
+  }
+
+  const { latitude, longitude, name } = geoData.results[0];
+
+  const weatherRes = await fetch(
+    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m`,
+    { headers: { "User-Agent": "MovieAI-Weather/1.0" } }
+  );
+  if (!weatherRes.ok) {
+    throw new Error(`Weather request failed with status ${weatherRes.status}`);
+  }
+  const weatherData = await weatherRes.json();
+
+  if (!weatherData.current) {
+    throw new Error("Weather data missing from response");
+  }
+
+  const { temperature_2m: temp, relative_humidity_2m: humidity, wind_speed_10m: wind } =
+    weatherData.current;
+
+  return `The current weather in ${name} is ${temp}°C. Humidity is ${humidity}% and wind speed is ${wind} km/h.`;
+}
+
+async function fetchWeatherFromWttr(city) {
+  const res = await fetch(
+    `https://wttr.in/${encodeURIComponent(city)}?format=j1`,
+    { headers: { "User-Agent": "curl/7.68.0" } }
+  );
+  if (!res.ok) {
+    throw new Error(`wttr.in request failed with status ${res.status}`);
+  }
+  const data = await res.json();
+  const current = data.current_condition?.[0];
+  const area = data.nearest_area?.[0]?.areaName?.[0]?.value || city;
+  if (!current) {
+    throw new Error("Invalid weather data from wttr.in");
+  }
+
+  const temp = current.temp_C;
+  const humidity = current.humidity;
+  const wind = current.windspeedKmph;
+  const desc = current.weatherDesc?.[0]?.value || "";
+
+  return `The current weather in ${area} is ${temp}°C (${desc}). Humidity is ${humidity}% and wind speed is ${wind} km/h.`;
+}
+
 server.tool(
   "get_weather",
   "Get current weather for a given city name",
@@ -39,35 +96,13 @@ server.tool(
         throw new Error("City name not provided for weather lookup");
       }
 
-      const geoRes = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`
-      );
-      if (!geoRes.ok) {
-        throw new Error(`Geocoding request failed with status ${geoRes.status}`);
+      let text;
+      try {
+        text = await fetchWeatherFromOpenMeteo(city.trim());
+      } catch (primaryErr) {
+        console.warn(`⚠️ Primary weather provider (Open-Meteo) failed: ${primaryErr.message}. Trying wttr.in fallback...`);
+        text = await fetchWeatherFromWttr(city.trim());
       }
-      const geoData = await geoRes.json();
-      if (!geoData.results || geoData.results.length === 0) {
-        throw new Error(`City "${city}" not found`);
-      }
-
-      const { latitude, longitude, name } = geoData.results[0];
-
-      const weatherRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m`
-      );
-      if (!weatherRes.ok) {
-        throw new Error(`Weather request failed with status ${weatherRes.status}`);
-      }
-      const weatherData = await weatherRes.json();
-
-      if (!weatherData.current) {
-        throw new Error("Weather data missing from response");
-      }
-
-      const { temperature_2m: temp, relative_humidity_2m: humidity, wind_speed_10m: wind } =
-        weatherData.current;
-
-      const text = `The current weather in ${name} is ${temp}°C. Humidity is ${humidity}% and wind speed is ${wind} km/h.`;
 
       return { content: [{ type: "text", text }] };
     } catch (error) {
@@ -153,11 +188,6 @@ const NEWS_SOURCES = [
     buildUrl: (topic) =>
       `https://www.bing.com/news/search?q=${encodeURIComponent(topic)}&format=RSS`,
   },
-  {
-    name: "Yahoo News",
-    buildUrl: (topic) =>
-      `https://news.search.yahoo.com/rss?p=${encodeURIComponent(topic)}`,
-  },
 ];
 
 function normalizeTitle(title = "") {
@@ -168,20 +198,27 @@ function normalizeTitle(title = "") {
     .replace(/[^a-z0-9 ]/g, "");
 }
 
-// Some unofficial RSS feeds (Bing/Yahoo News search results in particular) ship
-// malformed XML with bare, un-escaped "&" characters (e.g. "Cricket & Politics"),
-// which makes the XML parser throw "Invalid character in entity name". Fetch the
-// raw text ourselves and escape any "&" that isn't already part of a valid entity
-// before handing it to rss-parser, instead of relying on parseURL directly.
+// Some RSS feeds ship malformed XML or HTML pages instead of valid RSS XML.
+// Fetch raw text, ensure it's not HTML, escape unescaped entities, and parse.
 async function fetchAndSanitizeFeed(url) {
   const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; NewsFeedBot/1.0)" },
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    },
   });
   if (!res.ok) {
     throw new Error(`Feed request failed with status ${res.status}`);
   }
-  const rawXml = await res.text();
-  const sanitizedXml = rawXml.replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, "&amp;");
+  const rawText = await res.text();
+  const trimmed = rawText.trim();
+
+  // If the server responded with an HTML web page / challenge / consent page instead of XML RSS
+  if (trimmed.startsWith("<!doctype html") || trimmed.startsWith("<html") || trimmed.startsWith("<!DOCTYPE html")) {
+    throw new Error("Feed returned an HTML page instead of valid RSS/XML feed");
+  }
+
+  const sanitizedXml = trimmed.replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, "&amp;");
   return rssParser.parseString(sanitizedXml);
 }
 
