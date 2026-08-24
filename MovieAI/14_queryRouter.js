@@ -196,20 +196,25 @@ async function getNews(topic) {
 }
 
 async function summarizeNews(topic, rawHeadlines) {
-  const response = await llm.invoke([
-    {
-      role: "system",
-      content:
-        "You are a news editor. Given a deduplicated, recency-sorted list of headlines with " +
-        "sources and links, write a concise, neutral summary (4-6 bullet points max) of the " +
-        "latest news on the given topic. Do not fabricate details beyond what's in the headlines.",
-    },
-    {
-      role: "human",
-      content: `Topic: ${topic}\n\nHeadlines:\n${rawHeadlines}`,
-    },
-  ]);
-  return extractTextContent(response.content);
+  try {
+    const response = await llm.invoke([
+      {
+        role: "system",
+        content:
+          "You are a news editor. Given a deduplicated, recency-sorted list of headlines with " +
+          "sources and links, write a concise, neutral summary (4-6 bullet points max) of the " +
+          "latest news on the given topic. Do not fabricate details beyond what's in the headlines.",
+      },
+      {
+        role: "human",
+        content: `Topic: ${topic}\n\nHeadlines:\n${rawHeadlines}`,
+      },
+    ]);
+    return extractTextContent(response.content);
+  } catch (err) {
+    console.warn("⚠️ LLM news summarization failed, falling back to raw headlines:", err.message);
+    return `Latest news headlines for "${topic}":\n\n${rawHeadlines}`;
+  }
 }
 
 // =====================================================================
