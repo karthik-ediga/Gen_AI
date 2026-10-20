@@ -37,63 +37,66 @@ import { extractTextContent, normalizeRecords } from "./utils/llmUtils.js";
 
 function buildFallbackPlan(query, resolvedEntities) {
   const normalizedQuery = query.toLowerCase();
-  const entities = resolvedEntities?.entities || [];
-  const directorEntity = entities.find((entity) => entity.label === "Director");
-  const movieEntity = entities.find((entity) => entity.label === "Movie");
 
-  const asksForActors = /(actor|actors|actress|cast|acted|acted in|star|stars)/i.test(normalizedQuery);
-  const asksForMovies = /(movie|movies|film|films)/i.test(normalizedQuery);
+  const entities = resolvedEntities?.entities || [];
+
+  const getEntity = (label) =>
+    entities.find((entity) => entity.label === label);
+
+  const directorEntity = getEntity("Director");
+  const movieEntity = getEntity("Movie");
+  const actorEntity = getEntity("Actor");
+  const genreEntity = getEntity("Genre");
+
+  const asksForActors =
+    /(actor|actors|actress|cast|acted|star|stars)/i.test(normalizedQuery);
+
+  const asksForMovies =
+    /(movie|movies|film|films)/i.test(normalizedQuery);
 
   if (asksForActors && directorEntity) {
     return {
       steps: [
         { type: "traversal", from: "Actor", rel: "ACTED_IN", to: "Movie" },
         { type: "traversal", from: "Director", rel: "DIRECTED", to: "Movie" },
-        { type: "filter", field: "Director.name", op: "=", value: directorEntity.nodeName },
-        { type: "projection", fields: ["Actor.name"], distinct: true },
+        {
+          type: "filter",
+          field: "Director.name",
+          op: "=",
+          value: directorEntity.nodeName,
+        },
+        {
+          type: "projection",
+          fields: ["Actor.name"],
+          distinct: true,
+        },
       ],
     };
   }
 
-  if (directorEntity && !movieEntity) {
+  if (directorEntity && !movieEntity && asksForMovies) {
     return {
       steps: [
         { type: "traversal", from: "Director", rel: "DIRECTED", to: "Movie" },
-        { type: "filter", field: "Director.name", op: "=", value: directorEntity.nodeName },
-        { type: "projection", fields: ["Movie.title", "Movie.year"], distinct: true },
+        {
+          type: "filter",
+          field: "Director.name",
+          op: "=",
+          value: directorEntity.nodeName,
+        },
+        {
+          type: "projection",
+          fields: ["Movie.title", "Movie.year"],
+          distinct: true,
+        },
       ],
     };
   }
 
   return { steps: [] };
 }
-//returns true - meaning "the plan needs fixing"
-function shouldUseFallbackPlan(query, plan, resolvedEntities) {
-  const normalizedQuery = query.toLowerCase();
-  const asksForActors = /(actor|actors|actress|cast|acted|acted in|star|stars)/i.test(normalizedQuery);
-  if (!asksForActors) return false;
 
-  const entities = resolvedEntities?.entities || [];
-  const hasDirector = entities.some((entity) => entity.label === "Director");
-  if (!hasDirector) return false;
-
-  const steps = plan?.steps || [];
-  if (!Array.isArray(steps) || steps.length === 0) return true;
-
-  const projectionFields = steps
-    .filter((step) => step.type === "projection")
-    .flatMap((step) => step.fields || []);
-
-  const hasBadActorTraversal = steps.some(
-    (step) => step.type === "traversal" && step.rel === "ACTED_IN" && step.from === "Movie"
-  );
-
-  if (hasBadActorTraversal) {
-    return true;
-  }
-
-  return !projectionFields.some((field) => field.includes("Actor"));
-}
+  
 
 // =====================================================================
 // Step 1: LLM creates query plan WITH resolved entity context
@@ -191,7 +194,7 @@ EXAMPLES:
   try {
     const parsed = JSON.parse(raw);
     const hasValidSteps = parsed?.steps && Array.isArray(parsed.steps) && parsed.steps.length > 0;
-    if (!hasValidSteps || shouldUseFallbackPlan(query, parsed, resolvedEntities)) {
+    if (!hasValidSteps) {
       console.warn("⚠️ Planner returned an incomplete plan; using fallback plan");
       return buildFallbackPlan(query, resolvedEntities);
     }
