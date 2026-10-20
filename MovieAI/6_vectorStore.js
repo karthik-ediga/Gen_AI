@@ -28,6 +28,7 @@ const UPSERT_BATCH_SIZE = 100;
 // =====================================================================
 async function parsePDF(pdfPath) {
   const buffer = fs.readFileSync(pdfPath);
+  //turn the PDF's binary layout into plain "raw text"
   const data = await pdf(buffer);
   console.log(`   📄 Parsed PDF: ${data.numpages} pages, ~${data.text.length} characters`);
   return data.text;
@@ -37,6 +38,7 @@ async function parsePDF(pdfPath) {
 // STEP 2: Chunk Text
 // =====================================================================
 function chunkText(rawText) {
+    //based on hyphens 5 or more
   const blocks = rawText.split(/\n-{5,}\n/);
 
   const chunks = [];
@@ -107,14 +109,16 @@ async function buildVectorStore(pdfPath) {
     if ((roundNum - 1) % 10 === 0 || roundNum === totalRounds) {
       console.log(`   🔄 Round ${roundNum}/${totalRounds} (chunks ${i + 1}-${Math.min(i + EMBED_CONCURRENCY, chunks.length)})...`);
     }
-
+//Executes array of async operations concurrently
     const results = await Promise.all(
       batch.map(async (text, j) => {
         const embedding = await embedWithRetry(text);
         if (!embedding) return null;
         return {
+          //each vector with unique id
           id: `chunk-${i + j}`,
           values: embedding,
+          //Original raw text chunk
           metadata: { text },
         };
       })
@@ -139,7 +143,7 @@ async function buildVectorStore(pdfPath) {
     return;
   }
 
-  // Step 4: Upsert to Pinecone
+  // Step 4: Upsert to Pinecone - update+insert
   // Pinecone SDK v5 format: pineconeIndex.upsert(arrayOfVectors)
   // Each vector: { id: string, values: number[], metadata?: object }
   console.log(`\n   📦 Step 4: Upserting to Pinecone...`);
