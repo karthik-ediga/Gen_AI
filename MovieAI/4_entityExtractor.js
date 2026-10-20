@@ -89,6 +89,7 @@ async function extractBatch(fileInfo, start, end, attempt = 1) {
         {
           role: "user",
           parts: [
+            //tell Gemini: “Use this already-uploaded file as part of my prompt.”
             createPartFromUri(fileInfo.uri, fileInfo.mimeType),
             { text: prompt },
           ],
@@ -161,7 +162,7 @@ async function extractAllEntities(pdfPath, totalMovies = 1000, batchSize = 50) {
       extractBatch(fileInfo, batch.start, batch.end)
         .then((res) => ({ batch, results: res }))
     );
-
+//Executes array of async operations concurrently
     const batchResults = await Promise.all(promises);
 
     for (const { batch, results: res } of batchResults) {
@@ -174,7 +175,7 @@ async function extractAllEntities(pdfPath, totalMovies = 1000, batchSize = 50) {
 
     console.log(`   ✅ Total so far: ${results.length} movies`);
 
-    // Small 2s breather between rounds (not strictly needed, just polite)
+    // Small 2s breather between rounds (not strictly needed)
     if (i + CONCURRENCY < allBatches.length) {
       await new Promise((r) => setTimeout(r, 2000));
     }
@@ -202,7 +203,7 @@ async function extractAllEntities(pdfPath, totalMovies = 1000, batchSize = 50) {
   }
 
   // Cleanup uploaded file
-  try {
+  try {//unique resource name given to file by server
     await genai.files.delete({ name: fileInfo.name });
     console.log("   🗑️ PDF deleted from Gemini servers");
   } catch (e) { /* auto-deletes in 48h anyway */ }
