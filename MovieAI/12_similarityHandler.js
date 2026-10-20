@@ -141,6 +141,7 @@ async function handleSimilarityQuery(query, resolvedEntities) {
 
   for (const match of searchResults.matches) {
     const title = extractTitleFromChunk(match.metadata.text);
+    //checks whether a movie title is valid and different from the searched movie title
     if (title && title.toLowerCase() !== movieName.toLowerCase()) {
       candidateTitles.push(title);
       chunkMap[title] = match.metadata.text;
