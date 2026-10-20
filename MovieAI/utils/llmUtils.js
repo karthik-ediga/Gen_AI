@@ -8,7 +8,7 @@ function extractTextContent(content) {
 
   return typeof content === "string" ? content : "";
 }
-
+//neo4j records to js objects
 function normalizeRecords(records) {
   return records.map((record) => {
     const obj = {};
