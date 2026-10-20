@@ -154,7 +154,7 @@ async function buildVectorStore(pdfPath) {
 
     console.log(`   📦 Batch ${batchNum}/${totalBatches} (${batch.length} vectors)...`);
 
-    // Pinecone v5: .upsert() takes an array of vectors directly
+    // database container
     await pineconeIndex.upsert(batch);
   }
 
